@@ -50,3 +50,18 @@ func (s *Service) ListSeats(ctx context.Context, eventID uuid.UUID) ([]models.Se
 func (s *Service) AttemptBooking(ctx context.Context, req models.BookingRequest) error {
 	return s.repo.BookSeat(ctx, req.SeatID, req.UserID)
 }
+
+func (s *Service) CreateEvent(ctx context.Context, name string, date time.Time, rows, seatsPerRow int) (*models.Event, error) {
+	event := &models.Event{
+		ID:         uuid.New(),
+		Name:       name,
+		Date:       date,
+		TotalSeats: rows * seatsPerRow,
+	}
+
+	if err := s.repo.CreateEvent(ctx, event, rows, seatsPerRow); err != nil {
+		return nil, err
+	}
+
+	return event, nil
+}

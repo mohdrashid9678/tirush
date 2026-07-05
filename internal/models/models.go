@@ -9,7 +9,7 @@ import (
 type User struct {
 	ID           uuid.UUID `json:"id"`
 	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"` // Never return password in JSON
+	PasswordHash string    `json:"-"`
 	FullName     string    `json:"full_name"`
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -18,7 +18,7 @@ type Event struct {
 	ID             uuid.UUID `json:"id"`
 	Name           string    `json:"name"`
 	TotalSeats     int       `json:"total_seats"`
-	AvailableSeats int       `json:"available_seats"` // Derived or Cached
+	AvailableSeats int       `json:"available_seats"`
 	Date           time.Time `json:"date"`
 }
 

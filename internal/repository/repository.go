@@ -48,7 +48,6 @@ func (r *Repository) GetSeatsByEvent(ctx context.Context, eventID uuid.UUID) ([]
 
 // BookSeat performs the Transactional Booking with Optimistic Locking
 func (r *Repository) BookSeat(ctx context.Context, seatID, userID uuid.UUID) error {
-	// 1. Start a Transaction
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -56,9 +55,8 @@ func (r *Repository) BookSeat(ctx context.Context, seatID, userID uuid.UUID) err
 	// Always Rollback. If Commit is called, Rollback is a no-op.
 	defer tx.Rollback(ctx)
 
-	// 2. Optimistic Locking Query
 	// We only update IF the seat is AVAILABLE (Condition 1)
-	// AND the version hasn't changed (Condition 2 - implied by status check here, but version adds safety)
+	// AND the version hasn't changed
 	query := `
 		UPDATE seats 
 		SET status = 'BOOKED', user_id = $1, version = version + 1
@@ -70,12 +68,12 @@ func (r *Repository) BookSeat(ctx context.Context, seatID, userID uuid.UUID) err
 		return err
 	}
 
-	// 3. Check if any row was actually updated
+	// Check if any row was actually updated
 	if cmdTag.RowsAffected() == 0 {
 		return ErrSeatUnavailable
 	}
 
-	// 4. Create the Booking Record
+	// Create the Booking Record
 	bookingQuery := `INSERT INTO bookings (id, user_id, event_id, seat_id, status) 
 	                 VALUES ($1, $2, (SELECT event_id FROM seats WHERE id = $3), $3, 'CONFIRMED')`
 
@@ -84,6 +82,49 @@ func (r *Repository) BookSeat(ctx context.Context, seatID, userID uuid.UUID) err
 		return err
 	}
 
-	// 5. Commit
+	// Commit
+	return tx.Commit(ctx)
+}
+
+// CreateEventWithSeats creates an event and pre-fills all seats in ONE transaction
+func (r *Repository) CreateEvent(ctx context.Context, event *models.Event, rows, seatsPerRow int) error {
+	// 1. Start Transaction
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 2. Insert the Event
+	eventQuery := `INSERT INTO events (id, name, total_seats, date) VALUES ($1, $2, $3, $4)`
+	_, err = tx.Exec(ctx, eventQuery, event.ID, event.Name, rows*seatsPerRow, event.Date)
+	if err != nil {
+		return err
+	}
+
+	// 3. Batch Insert Seats using "generate_series" (The Fast Way)
+	// Instead of sending 100k INSERTs, we send 1 SQL command that tells Postgres to generate data.
+	// This is significantly faster than generating structs in Go.
+	seatQuery := `
+		INSERT INTO seats (id, event_id, section, row_number, seat_number, status, version)
+		SELECT 
+			uuid_generate_v4(), -- Generate a new UUID for each seat
+			$1,                 -- Event ID
+			'Standard',         -- Default Section
+			r,                  -- Row Number (from generate_series)
+			s,                  -- Seat Number (from generate_series)
+			'AVAILABLE',
+			0
+		FROM 
+			generate_series(1, $2) as r, -- Rows: 1 to N
+			generate_series(1, $3) as s  -- Seats: 1 to M
+	`
+
+	_, err = tx.Exec(ctx, seatQuery, event.ID, rows, seatsPerRow)
+	if err != nil {
+		return err
+	}
+
+	// 4. Commit
 	return tx.Commit(ctx)
 }
