@@ -17,13 +17,13 @@ type Service struct {
 // New initializes the database connection
 func New(connStr string) (*Service, error) {
 
-	// 1. Parse Config
+	// Parse Config
 	dbConfig, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse db config: %w", err)
 	}
 
-	// 2. Pool Configuration
+	// Pool Configuration
 	// MaxConns: Max number of connections in the pool.
 	// If all are busy, new queries wait.
 	dbConfig.MaxConns = 50
@@ -31,7 +31,7 @@ func New(connStr string) (*Service, error) {
 	dbConfig.MaxConnLifetime = time.Hour
 	dbConfig.MaxConnIdleTime = 30 * time.Minute
 
-	// 3. Connect
+	// Connect
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -40,7 +40,7 @@ func New(connStr string) (*Service, error) {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
-	// 4. Ping to verify connection
+	// Ping to verify connection
 	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
