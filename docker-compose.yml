@@ -1,0 +1,68 @@
+version: "3.8"
+
+services:
+  # 1. The Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: ticketrush_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ticketrush
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ticketrush"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. The Cache / Distributed Lock
+  redis:
+    image: redis:7-alpine
+    container_name: ticketrush_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Database Migrations (Runs once and exits)
+  migrate:
+    image: migrate/migrate
+    container_name: ticketrush_migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command:
+      - -path=/migrations
+      - -database=postgresql://postgres:password@postgres:5432/ticketrush?sslmode=disable
+      - up
+
+  # 4. Our Main Go API
+  api:
+    build: .
+    container_name: ticketrush_api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      # Note: We use 'postgres' and 'redis' hostnames here, not 'localhost'
+      - DB_URL=postgresql://postgres:password@postgres:5432/ticketrush?sslmode=disable
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

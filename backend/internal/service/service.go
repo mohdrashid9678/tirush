@@ -65,3 +65,8 @@ func (s *Service) CreateEvent(ctx context.Context, name string, date time.Time, 
 
 	return event, nil
 }
+
+// Add this to your Service struct methods
+func (s *Service) ListEvents(ctx context.Context) ([]models.Event, error) {
+	return s.repo.ListEvents(ctx)
+}

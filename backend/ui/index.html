@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TicketRush | High-Concurrency Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .seat {
+            transition: all 0.2s ease;
+        }
+
+        .seat:hover:not(.booked) {
+            transform: scale(1.1);
+            cursor: pointer;
+        }
+
+        .booked {
+            background-color: #ef4444;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .available {
+            background-color: #22c55e;
+        }
+
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 50;
+        }
+
+        .toast {
+            padding: 16px;
+            margin-top: 10px;
+            border-radius: 8px;
+            color: white;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .toast.success {
+            background-color: #10b981;
+        }
+
+        .toast.error {
+            background-color: #ef4444;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white font-sans antialiased">
+
+    <!-- Navbar -->
+    <nav class="bg-gray-800 border-b border-gray-700 py-4 px-8 flex justify-between items-center shadow-lg">
+        <div class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-blue-500">
+            🎟️ TicketRush Engine
+        </div>
+        <div class="text-sm text-gray-400">
+            Simulating User ID: <span id="mock-user-id" class="font-mono text-gray-200"></span>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto py-10 px-6 grid grid-cols-1 lg:grid-cols-3 gap-10">
+
+        <!-- Left Column: Events -->
+        <div class="lg:col-span-1 space-y-6">
+            <h2 class="text-xl font-semibold border-b border-gray-700 pb-2">Available Events</h2>
+            <div id="events-container" class="space-y-4">
+                <p class="text-gray-400 text-sm animate-pulse">Loading events...</p>
+            </div>
+        </div>
+
+        <!-- Right Column: Seat Map -->
+        <div class="lg:col-span-2 bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700 hidden"
+            id="seat-map-section">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold" id="selected-event-name">Event Name</h2>
+                <div class="flex gap-4 text-sm font-medium">
+                    <span class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded bg-green-500"></div> Available
+                    </span>
+                    <span class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded bg-red-500"></div> Booked
+                    </span>
+                </div>
+            </div>
+
+            <!-- The Stage -->
+            <div
+                class="w-full bg-gray-700 rounded-t-[50%] h-12 flex items-center justify-center mb-10 text-gray-400 font-semibold tracking-widest">
+                STAGE
+            </div>
+
+            <!-- Seats Grid -->
+            <div id="seats-grid" class="flex flex-wrap justify-center gap-2"></div>
+        </div>
+    </main>
+
+    <!-- Toaster for Notifications -->
+    <div id="toast-container"></div>
+
+    <script>
+        // Generate a random mock UUID for the current session to test concurrency
+        const mockUserId = crypto.randomUUID();
+        document.getElementById('mock-user-id').innerText = mockUserId.split('-')[0];
+
+        let currentEventId = null;
+
+        // Fetch Events on load
+        async function fetchEvents() {
+            try {
+                const res = await fetch('/events');
+                const events = await res.json();
+                const container = document.getElementById('events-container');
+                container.innerHTML = '';
+
+                if (!events || events.length === 0) {
+                    container.innerHTML = '<p class="text-gray-400">No events found. Use the API to create one.</p>';
+                    return;
+                }
+
+                events.forEach(event => {
+                    const d = new Date(event.date).toLocaleDateString();
+                    const el = document.createElement('div');
+                    el.className = 'bg-gray-800 p-5 rounded-lg border border-gray-700 hover:border-blue-500 transition cursor-pointer shadow-md';
+                    el.innerHTML = `
+                        <h3 class="text-lg font-bold text-blue-400">${event.name}</h3>
+                        <p class="text-sm text-gray-400 mt-1">📅 ${d}</p>
+                        <p class="text-sm text-gray-400">🎟️ ${event.total_seats} Total Seats</p>
+                    `;
+                    el.onclick = () => loadSeats(event.id, event.name);
+                    container.appendChild(el);
+                });
+            } catch (e) {
+                showToast('Failed to load events. Is the server running?', 'error');
+            }
+        }
+
+        // Fetch Seats for an Event
+        async function loadSeats(eventId, eventName) {
+            currentEventId = eventId;
+            document.getElementById('seat-map-section').classList.remove('hidden');
+            document.getElementById('selected-event-name').innerText = eventName;
+            const grid = document.getElementById('seats-grid');
+            grid.innerHTML = '<p class="text-gray-400 animate-pulse">Loading seat map...</p>';
+
+            try {
+                const res = await fetch(`/events/${eventId}/seats`);
+                const seats = await res.json();
+                grid.innerHTML = '';
+
+                seats.forEach(seat => {
+                    const btn = document.createElement('button');
+                    const isBooked = seat.status === 'BOOKED';
+                    btn.className = `seat w-10 h-10 rounded-md font-bold text-xs flex items-center justify-center shadow ${isBooked ? 'booked text-white' : 'available text-gray-900'}`;
+                    btn.innerText = `${seat.row_number}-${seat.seat_number}`;
+                    btn.disabled = isBooked;
+
+                    if (!isBooked) {
+                        btn.onclick = () => bookSeat(seat.id, btn);
+                    }
+                    grid.appendChild(btn);
+                });
+            } catch (e) {
+                showToast('Failed to load seats.', 'error');
+            }
+        }
+
+        // Book a Seat
+        async function bookSeat(seatId, buttonElement) {
+            // Optimistically update UI to 'processing' state
+            const originalColor = buttonElement.className;
+            buttonElement.className = 'seat w-10 h-10 rounded-md font-bold text-xs flex items-center justify-center bg-yellow-400 text-gray-900 animate-pulse';
+
+            try {
+                const res = await fetch('/book', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event_id: currentEventId,
+                        seat_id: seatId,
+                        user_id: mockUserId
+                    })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    showToast('Seat booked successfully!', 'success');
+                    buttonElement.className = 'seat w-10 h-10 rounded-md font-bold text-xs flex items-center justify-center booked shadow text-white';
+                    buttonElement.disabled = true;
+                } else if (res.status === 409) {
+                    // This is where Optimistic Locking shines!
+                    showToast('Too slow! Another user grabbed this seat.', 'error');
+                    buttonElement.className = 'seat w-10 h-10 rounded-md font-bold text-xs flex items-center justify-center booked shadow text-white';
+                    buttonElement.disabled = true;
+                } else {
+                    showToast(data.error || 'An error occurred', 'error');
+                    buttonElement.className = originalColor; // Revert
+                }
+            } catch (e) {
+                showToast('Network error while booking.', 'error');
+                buttonElement.className = originalColor;
+            }
+        }
+
+        // Toast Notification System
+        function showToast(message, type) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type} shadow-lg font-semibold`;
+            toast.innerText = message;
+            container.appendChild(toast);
+
+            // Trigger animation
+            setTimeout(() => toast.classList.add('show'), 10);
+
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => container.removeChild(toast), 300);
+            }, 3000);
+        }
+
+        // Init
+        fetchEvents();
+    </script>
+</body>
+
+</html>
