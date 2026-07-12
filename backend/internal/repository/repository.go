@@ -128,3 +128,23 @@ func (r *Repository) CreateEvent(ctx context.Context, event *models.Event, rows,
 	// 4. Commit
 	return tx.Commit(ctx)
 }
+
+// Add this to your Repository struct methods
+func (r *Repository) ListEvents(ctx context.Context) ([]models.Event, error) {
+	query := `SELECT id, name, total_seats, date FROM events ORDER BY date ASC`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []models.Event
+	for rows.Next() {
+		var e models.Event
+		if err := rows.Scan(&e.ID, &e.Name, &e.TotalSeats, &e.Date); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, nil
+}

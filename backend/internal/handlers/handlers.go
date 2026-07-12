@@ -21,8 +21,10 @@ func NewHandler(svc *service.Service) *Handler {
 
 // RegisterRoutes defines API endpoints
 func (h *Handler) RegisterRoutes(r chi.Router) {
+	r.Get("/", h.ServeUI)
 	r.Post("/users", h.CreateUser)
 	r.Post("/events", h.CreateEvent)
+	r.Get("/events", h.GetEvents)
 	r.Get("/events/{eventID}/seats", h.GetSeats)
 	r.Post("/book", h.BookTicket)
 }
@@ -119,4 +121,22 @@ func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	render.Status(r, http.StatusCreated)
 	render.JSON(w, r, event)
+}
+
+// Add these two methods to your Handler struct
+
+// GetEvents returns a list of all events
+func (h *Handler) GetEvents(w http.ResponseWriter, r *http.Request) {
+	events, err := h.svc.ListEvents(r.Context())
+	if err != nil {
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, map[string]string{"error": err.Error()})
+		return
+	}
+	render.JSON(w, r, events)
+}
+
+// ServeUI serves the index.html file
+func (h *Handler) ServeUI(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "ui/index.html")
 }

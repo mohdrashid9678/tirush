@@ -21,3 +21,14 @@
 
 # Logs
 *.log
+
+# Node & Next.js
+node_modules/
+.next/
+out/
+build/
+.docusaurus/
+.turbo/
+
+# Next.js local env files
+.env*.local
